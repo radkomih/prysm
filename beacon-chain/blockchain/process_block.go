@@ -86,18 +86,6 @@ func (s *Service) postBlockProcess(ctx context.Context, signed interfaces.ReadOn
 			"headRoot":       fmt.Sprintf("%#x", headRoot),
 			"headWeight":     headWeight,
 		}).Debug("Head block is not the received block")
-	} else {
-		// Updating next slot state cache can happen in the background. It shouldn't block rest of the process.
-		go func() {
-			// Use a custom deadline here, since this method runs asynchronously.
-			// We ignore the parent method's context and instead create a new one
-			// with a custom deadline, therefore using the background context instead.
-			slotCtx, cancel := context.WithTimeout(context.Background(), slotDeadline)
-			defer cancel()
-			if err := transition.UpdateNextSlotCache(slotCtx, blockRoot[:], postState); err != nil {
-				log.WithError(err).Debug("could not update next slot state cache")
-			}
-		}()
 	}
 	newBlockHeadElapsedTime.Observe(float64(time.Since(start).Milliseconds()))
 
@@ -126,11 +114,23 @@ func (s *Service) postBlockProcess(ctx context.Context, signed interfaces.ReadOn
 	})
 
 	defer reportAttestationInclusion(b)
-	//only handle epoch boundary if the incoming block is canonical,
-	//otherwise this will be handled by lateBlockTasks.
 	if headRoot == blockRoot {
-		if err := s.handleEpochBoundary(ctx, postState.Slot(), postState, blockRoot[:]); err != nil {
-			return errors.Wrap(err, "could not handle epoch boundary")
+		// Updating next slot state cache can happen in the background
+		// except in the epoch boundary in which case we lock to handle
+		// the shuffling and proposer caches updates.
+		// We handle these caches only on canonical
+		// blocks, otherwise this will be handled by lateBlockTasks
+		slot := postState.Slot()
+		if (slot+1)%params.BeaconConfig().SlotsPerEpoch != 0 {
+			go updateNextSlotCacheOnBlock(blockRoot, postState)
+		} else {
+			if err := transition.UpdateNextSlotCache(ctx, blockRoot[:], postState); err != nil {
+				return errors.Wrap(err, "could not update next slot state cache")
+			}
+			if err := s.handleEpochBoundary(ctx, slot, postState, blockRoot[:]); err != nil {
+				return errors.Wrap(err, "could not handle epoch boundary")
+			}
+
 		}
 	}
 	onBlockProcessingTime.Observe(float64(time.Since(startTime).Milliseconds()))
@@ -325,6 +325,14 @@ func (s *Service) onBlockBatch(ctx context.Context, blks []interfaces.ReadOnlySi
 		return err
 	}
 	return s.saveHeadNoDB(ctx, lastB, lastBR, preState)
+}
+
+func updateNextSlotCacheOnBlock(root [32]byte, st state.BeaconState) {
+	slotCtx, cancel := context.WithTimeout(context.Background(), 2*slotDeadline)
+	defer cancel()
+	if err := transition.UpdateNextSlotCache(slotCtx, root[:], st); err != nil {
+		log.WithError(err).Error("could not update next slot state cache")
+	}
 }
 
 func (s *Service) updateEpochBoundaryCaches(ctx context.Context, st state.BeaconState) error {
