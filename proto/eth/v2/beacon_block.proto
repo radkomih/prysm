@@ -60,6 +60,19 @@ message BeaconBlockContainerV2 {
   }
 }
 
+message BeaconBlockContainerV3 {
+  oneof block {
+    v1.BeaconBlock phase0_block = 1;
+    BeaconBlockAltair altair_block = 2;
+    BeaconBlockBellatrix bellatrix_block = 3;
+    BlindedBeaconBlockBellatrix blinded_bellatrix_block = 4;
+    BeaconBlockCapella capella_block = 5;
+    BlindedBeaconBlockCapella blinded_capella_block = 6;
+    BeaconBlockContentsDeneb deneb_contents = 7;
+    BlindedBeaconBlockContentsDeneb blinded_deneb_contents = 8;
+  }
+}
+
 message SignedBeaconBlockContainer {
   oneof message {
     v1.BeaconBlock phase0_block = 1;

@@ -55,6 +55,13 @@ message ProduceBlockResponseV2 {
   BeaconBlockContainerV2 data = 2;
 }
 
+message ProduceBlockResponseV3 {
+  Version version = 1;
+  bool execution_payload_blinded = 2;
+  string exeuction_payload_value = 3;
+  BeaconBlockContainerV3 data = 4;
+}
+
 message ProduceBlindedBlockResponse {
   Version version = 1;
   BlindedBeaconBlockContainer data = 2;
