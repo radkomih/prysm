@@ -341,8 +341,14 @@ func (b *SignedBeaconBlock) Version() int {
 	return b.version
 }
 
+// IsBlinded metadata on whether a block is blinded
 func (b *SignedBeaconBlock) IsBlinded() bool {
 	return b.block.body.isBlinded
+}
+
+// ValueInGwei metadata on the payload value returned by the builder. value is 0 by default if local.
+func (b *SignedBeaconBlock) ValueInGwei() uint64 {
+	return b.block.body.valueInGwei
 }
 
 // Header converts the underlying protobuf object from blinded block to header format.

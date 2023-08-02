@@ -7,13 +7,17 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strconv"
 
+	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/go-playground/validator/v10"
 	"github.com/pkg/errors"
+	"github.com/prysmaticlabs/prysm/v4/api"
 	"github.com/prysmaticlabs/prysm/v4/beacon-chain/core/transition"
 	"github.com/prysmaticlabs/prysm/v4/beacon-chain/rpc/eth/helpers"
 	"github.com/prysmaticlabs/prysm/v4/consensus-types/blocks"
 	"github.com/prysmaticlabs/prysm/v4/consensus-types/interfaces"
+	"github.com/prysmaticlabs/prysm/v4/consensus-types/primitives"
 	"github.com/prysmaticlabs/prysm/v4/network"
 	ethpbv1 "github.com/prysmaticlabs/prysm/v4/proto/eth/v1"
 	ethpbv2 "github.com/prysmaticlabs/prysm/v4/proto/eth/v2"
@@ -759,37 +763,78 @@ func ProduceBlockV3(bs *Server, w http.ResponseWriter, r *http.Request) {
 	if ok := bs.checkSync(r.Context(), w); !ok {
 		return
 	}
-	// query by slot
-	// query by randao_reveal
-	// query by graffiti
-	// query by skip_randao_verification
-	isSSZ, err := network.SszRequested(r)
-	if isSSZ && err == nil {
-		produceBlockV3SSZ(bs, w, r)
-	} else {
-		produceBlockV3(bs, w, r)
-	}
-}
 
-func produceBlockV3SSZ(bs *Server, w http.ResponseWriter, r *http.Request) {
-
-}
-
-func produceBlockV3(bs *Server, w http.ResponseWriter, r *http.Request) {
-	validate := validator.New()
 	rawSlot := r.URL.Query().Get("slot")
-	slot, valid := shared.ValidateUint(w, "Slot", rawSlot)
-	if !valid {
+	rawRandaoReveal := r.URL.Query().Get("randao_reveal")
+	rawGraffiti := r.URL.Query().Get("graffiti")
+	rawSkipRandaoVerification := r.URL.Query().Get("skip_randao_verification")
+
+	if rawSlot == "" {
+		errJson := &network.DefaultErrorJson{
+			Message: "slot is required",
+			Code:    http.StatusBadRequest,
+		}
+		network.WriteError(w, errJson)
+		return
+	}
+	slot, err := strconv.ParseUint(rawSlot, 10, 64)
+	if err != nil {
+		errJson := &network.DefaultErrorJson{
+			Message: "slot is invalid: " + err.Error(),
+			Code:    http.StatusBadRequest,
+		}
+		network.WriteError(w, errJson)
+		return
+	}
+	var randaoReveal []byte
+	if rawSkipRandaoVerification == "true" {
+		randaoReveal = primitives.PointAtInfinity
+	} else {
+		rr, err := hexutil.Decode(rawRandaoReveal)
+		if err != nil {
+			errJson := &network.DefaultErrorJson{
+				Message: errors.Wrap(err, "unable to decode randao reveal").Error(),
+				Code:    http.StatusBadRequest,
+			}
+			network.WriteError(w, errJson)
+			return
+		}
+		randaoReveal = rr
+	}
+	if len(randaoReveal) == 0 {
+		errJson := &network.DefaultErrorJson{
+			Message: "randao reveal is required as query parameters",
+			Code:    http.StatusBadRequest,
+		}
+		network.WriteError(w, errJson)
+		return
+	}
+	graffiti, err := hexutil.Decode(rawGraffiti)
+	if err != nil {
+		errJson := &network.DefaultErrorJson{
+			Message: errors.Wrap(err, "unable to decode graffiti").Error(),
+			Code:    http.StatusBadRequest,
+		}
+		network.WriteError(w, errJson)
 		return
 	}
 
-	v1alpha1req := &eth.BlockRequest{
-		Slot:         slot,
-		RandaoReveal: req.RandaoReveal,
-		Graffiti:     req.Graffiti,
-		SkipMevBoost: true, // Skip mev-boost and relayer network
-	}
+	produceBlockV3(bs, w, r, &eth.BlockRequest{
+		Slot:         primitives.Slot(slot),
+		RandaoReveal: randaoReveal,
+		Graffiti:     graffiti,
+		SkipMevBoost: false,
+	})
 
+}
+
+func produceBlockV3(bs *Server, w http.ResponseWriter, r *http.Request, v1alpha1req *eth.BlockRequest) {
+	isSSZ, err := network.SszRequested(r)
+	if err != nil {
+		log.WithError(err).Error("verifying ssz request failed, defaulting to non ssz.")
+		isSSZ = false
+	}
+	validate := validator.New()
 	v1alpha1resp, err := bs.V1Alpha1ValidatorServer.GetBeaconBlock(r.Context(), v1alpha1req)
 	if err != nil {
 		errJson := &network.DefaultErrorJson{
@@ -801,6 +846,21 @@ func produceBlockV3(bs *Server, w http.ResponseWriter, r *http.Request) {
 	}
 	phase0Block, ok := v1alpha1resp.Block.(*eth.GenericBeaconBlock_Phase0)
 	if ok {
+		w.Header().Set(api.ExecutionPayloadBlindedHeader, fmt.Sprintf("%v", v1alpha1resp.IsBlinded))
+		w.Header().Set(api.ExecutionPayloadValueHeader, fmt.Sprintf("%d", v1alpha1resp.PayloadValue))
+		if isSSZ {
+			sszResp, err := phase0Block.Phase0.MarshalSSZ()
+			if err != nil {
+				errJson := &network.DefaultErrorJson{
+					Message: err.Error(),
+					Code:    http.StatusInternalServerError,
+				}
+				network.WriteError(w, errJson)
+				return
+			}
+			network.WriteSsz(w, sszResp, "phase0Block.ssz")
+			return
+		}
 		block, err := convertInternalBeaconBlock(phase0Block.Phase0)
 		if err != nil {
 			errJson := &network.DefaultErrorJson{
@@ -814,14 +874,30 @@ func produceBlockV3(bs *Server, w http.ResponseWriter, r *http.Request) {
 			network.WriteJson(w, &Phase0ProduceBlockV3Response{
 				Version:                 version.String(version.Phase0),
 				ExecutionPayloadBlinded: false,
-				ExeuctionPayloadValue:   "0", // mev not available at this point
+				ExeuctionPayloadValue:   fmt.Sprintf("%d", v1alpha1resp.PayloadValue), // mev not available at this point
 				Data:                    block,
 			})
 			return
 		}
+
 	}
 	altairBlock, ok := v1alpha1resp.Block.(*eth.GenericBeaconBlock_Altair)
 	if ok {
+		w.Header().Set(api.ExecutionPayloadBlindedHeader, fmt.Sprintf("%v", v1alpha1resp.IsBlinded))
+		w.Header().Set(api.ExecutionPayloadValueHeader, fmt.Sprintf("%d", v1alpha1resp.PayloadValue))
+		if isSSZ {
+			sszResp, err := altairBlock.Altair.MarshalSSZ()
+			if err != nil {
+				errJson := &network.DefaultErrorJson{
+					Message: err.Error(),
+					Code:    http.StatusInternalServerError,
+				}
+				network.WriteError(w, errJson)
+				return
+			}
+			network.WriteSsz(w, sszResp, "altairBlock.ssz")
+			return
+		}
 		block, err := convertInternalBeaconBlockAltair(altairBlock.Altair)
 		if err != nil {
 			errJson := &network.DefaultErrorJson{
@@ -835,7 +911,7 @@ func produceBlockV3(bs *Server, w http.ResponseWriter, r *http.Request) {
 			network.WriteJson(w, &AltairProduceBlockV3Response{
 				Version:                 version.String(version.Altair),
 				ExecutionPayloadBlinded: false,
-				ExeuctionPayloadValue:   "0", // mev not available at this point
+				ExeuctionPayloadValue:   fmt.Sprintf("%d", v1alpha1resp.PayloadValue), // mev not available at this point
 				Data:                    block,
 			})
 			return
@@ -860,6 +936,21 @@ func produceBlockV3(bs *Server, w http.ResponseWriter, r *http.Request) {
 	}
 	blindedBellatrixBlock, ok := v1alpha1resp.Block.(*eth.GenericBeaconBlock_BlindedBellatrix)
 	if ok {
+		w.Header().Set(api.ExecutionPayloadBlindedHeader, fmt.Sprintf("%v", v1alpha1resp.IsBlinded))
+		w.Header().Set(api.ExecutionPayloadValueHeader, fmt.Sprintf("%d", v1alpha1resp.PayloadValue))
+		if isSSZ {
+			sszResp, err := blindedBellatrixBlock.BlindedBellatrix.MarshalSSZ()
+			if err != nil {
+				errJson := &network.DefaultErrorJson{
+					Message: err.Error(),
+					Code:    http.StatusInternalServerError,
+				}
+				network.WriteError(w, errJson)
+				return
+			}
+			network.WriteSsz(w, sszResp, "blindeBellatrixBlock.ssz")
+			return
+		}
 		block, err := convertInternalBlindedBeaconBlockBellatrix(blindedBellatrixBlock.BlindedBellatrix)
 		if err != nil {
 			errJson := &network.DefaultErrorJson{
@@ -873,7 +964,7 @@ func produceBlockV3(bs *Server, w http.ResponseWriter, r *http.Request) {
 			network.WriteJson(w, &BlindedBellatrixProduceBlockV3Response{
 				Version:                 version.String(version.Bellatrix),
 				ExecutionPayloadBlinded: true,
-				ExeuctionPayloadValue:   "0", // mev not available at this point
+				ExeuctionPayloadValue:   fmt.Sprintf("%d", v1alpha1resp.PayloadValue), // mev not available at this point
 				Data:                    block,
 			})
 			return
@@ -881,6 +972,21 @@ func produceBlockV3(bs *Server, w http.ResponseWriter, r *http.Request) {
 	}
 	bellatrixBlock, ok := v1alpha1resp.Block.(*eth.GenericBeaconBlock_Bellatrix)
 	if ok {
+		w.Header().Set(api.ExecutionPayloadBlindedHeader, fmt.Sprintf("%v", v1alpha1resp.IsBlinded))
+		w.Header().Set(api.ExecutionPayloadValueHeader, fmt.Sprintf("%d", v1alpha1resp.PayloadValue))
+		if isSSZ {
+			sszResp, err := bellatrixBlock.Bellatrix.MarshalSSZ()
+			if err != nil {
+				errJson := &network.DefaultErrorJson{
+					Message: err.Error(),
+					Code:    http.StatusInternalServerError,
+				}
+				network.WriteError(w, errJson)
+				return
+			}
+			network.WriteSsz(w, sszResp, "bellatrixBlock.ssz")
+			return
+		}
 		block, err := convertInternalBeaconBlockBellatrix(bellatrixBlock.Bellatrix)
 		if err != nil {
 			errJson := &network.DefaultErrorJson{
@@ -894,7 +1000,7 @@ func produceBlockV3(bs *Server, w http.ResponseWriter, r *http.Request) {
 			network.WriteJson(w, &BellatrixProduceBlockV3Response{
 				Version:                 version.String(version.Bellatrix),
 				ExecutionPayloadBlinded: false,
-				ExeuctionPayloadValue:   "0", // mev not available at this point
+				ExeuctionPayloadValue:   fmt.Sprintf("%d", v1alpha1resp.PayloadValue), // mev not available at this point
 				Data:                    block,
 			})
 			return
@@ -902,7 +1008,22 @@ func produceBlockV3(bs *Server, w http.ResponseWriter, r *http.Request) {
 	}
 	blindedCapellaBlock, ok := v1alpha1resp.Block.(*eth.GenericBeaconBlock_BlindedCapella)
 	if ok {
-		block, err := convertInternalBlindedBeaconBlockBellatrix(blindedBellatrixBlock.BlindedBellatrix)
+		w.Header().Set(api.ExecutionPayloadBlindedHeader, fmt.Sprintf("%v", v1alpha1resp.IsBlinded))
+		w.Header().Set(api.ExecutionPayloadValueHeader, fmt.Sprintf("%d", v1alpha1resp.PayloadValue))
+		if isSSZ {
+			sszResp, err := blindedCapellaBlock.BlindedCapella.MarshalSSZ()
+			if err != nil {
+				errJson := &network.DefaultErrorJson{
+					Message: err.Error(),
+					Code:    http.StatusInternalServerError,
+				}
+				network.WriteError(w, errJson)
+				return
+			}
+			network.WriteSsz(w, sszResp, "blindedCapellaBlock.ssz")
+			return
+		}
+		block, err := convertInternalBlindedBeaconBlockCapella(blindedCapellaBlock.BlindedCapella)
 		if err != nil {
 			errJson := &network.DefaultErrorJson{
 				Message: err.Error(),
@@ -912,48 +1033,121 @@ func produceBlockV3(bs *Server, w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if err = validate.Struct(block); err == nil {
-			network.WriteJson(w, &BlindedBellatrixProduceBlockV3Response{
-				Version:                 version.String(version.Bellatrix),
+			network.WriteJson(w, &BlindedCapellaProduceBlockV3Response{
+				Version:                 version.String(version.Capella),
 				ExecutionPayloadBlinded: true,
-				ExeuctionPayloadValue:   "0", // mev not available at this point
+				ExeuctionPayloadValue:   fmt.Sprintf("%d", v1alpha1resp.PayloadValue), // mev not available at this point
 				Data:                    block,
 			})
 			return
 		}
 	}
-	capellaBlock, ok := v1alpha1resp.Block.(*ethpbalpha.GenericBeaconBlock_Capella)
+	capellaBlock, ok := v1alpha1resp.Block.(*eth.GenericBeaconBlock_Capella)
 	if ok {
-		block, err := migration.V1Alpha1BeaconBlockCapellaToV2(capellaBlock.Capella)
-		if err != nil {
-			return nil, status.Errorf(codes.Internal, "Could not prepare beacon block: %v", err)
+		w.Header().Set(api.ExecutionPayloadBlindedHeader, fmt.Sprintf("%v", v1alpha1resp.IsBlinded))
+		w.Header().Set(api.ExecutionPayloadValueHeader, fmt.Sprintf("%d", v1alpha1resp.PayloadValue))
+		if isSSZ {
+			sszResp, err := capellaBlock.Capella.MarshalSSZ()
+			if err != nil {
+				errJson := &network.DefaultErrorJson{
+					Message: err.Error(),
+					Code:    http.StatusInternalServerError,
+				}
+				network.WriteError(w, errJson)
+				return
+			}
+			network.WriteSsz(w, sszResp, "capellaBlock.ssz")
+			return
 		}
-		return &ethpbv2.ProduceBlockResponseV2{
-			Version: ethpbv2.Version_CAPELLA,
-			Data: &ethpbv2.BeaconBlockContainerV2{
-				Block: &ethpbv2.BeaconBlockContainerV2_CapellaBlock{CapellaBlock: block},
-			},
-		}, nil
+		block, err := convertInternalBeaconBlockCapella(capellaBlock.Capella)
+		if err != nil {
+			errJson := &network.DefaultErrorJson{
+				Message: err.Error(),
+				Code:    http.StatusInternalServerError,
+			}
+			network.WriteError(w, errJson)
+			return
+		}
+		if err = validate.Struct(block); err == nil {
+			network.WriteJson(w, &CapellaProduceBlockV3Response{
+				Version:                 version.String(version.Capella),
+				ExecutionPayloadBlinded: false,
+				ExeuctionPayloadValue:   fmt.Sprintf("%d", v1alpha1resp.PayloadValue), // mev not available at this point
+				Data:                    block,
+			})
+			return
+		}
 	}
-	//_, ok = v1alpha1resp.Block.(*ethpbalpha.GenericBeaconBlock_BlindedDeneb)
-	//if ok {
-	//	return nil, status.Error(codes.Internal, "Prepared Deneb beacon block contents are blinded")
-	//}
-	//denebBlock, ok := v1alpha1resp.Block.(*ethpbalpha.GenericBeaconBlock_Deneb)
-	//if ok {
-	//	blockAndBlobs, err := migration.V1Alpha1BeaconBlockDenebAndBlobsToV2(denebBlock.Deneb)
-	//	if err != nil {
-	//		return nil, status.Errorf(codes.Internal, "Could not prepare beacon block contents: %v", err)
-	//	}
-	//	return &ethpbv2.ProduceBlockResponseV2{
-	//		Version: ethpbv2.Version_DENEB,
-	//		Data: &ethpbv2.BeaconBlockContainerV2{
-	//			Block: &ethpbv2.BeaconBlockContainerV2_DenebContents{
-	//				DenebContents: &ethpbv2.BeaconBlockContentsDeneb{
-	//					Block:        blockAndBlobs.Block,
-	//					BlobSidecars: blockAndBlobs.BlobSidecars,
-	//				}},
-	//		},
-	//	}, nil
-	//}
-
+	blindedDenebBlockContents, ok := v1alpha1resp.Block.(*eth.GenericBeaconBlock_BlindedDeneb)
+	if ok {
+		w.Header().Set(api.ExecutionPayloadBlindedHeader, fmt.Sprintf("%v", v1alpha1resp.IsBlinded))
+		w.Header().Set(api.ExecutionPayloadValueHeader, fmt.Sprintf("%d", v1alpha1resp.PayloadValue))
+		if isSSZ {
+			sszResp, err := blindedDenebBlockContents.BlindedDeneb.MarshalSSZ()
+			if err != nil {
+				errJson := &network.DefaultErrorJson{
+					Message: err.Error(),
+					Code:    http.StatusInternalServerError,
+				}
+				network.WriteError(w, errJson)
+				return
+			}
+			network.WriteSsz(w, sszResp, "blindedDenebBlockContents.ssz")
+			return
+		}
+		blockContents, err := convertInternalBlindedBeaconBlockContentsDeneb(blindedDenebBlockContents.BlindedDeneb)
+		if err != nil {
+			errJson := &network.DefaultErrorJson{
+				Message: err.Error(),
+				Code:    http.StatusInternalServerError,
+			}
+			network.WriteError(w, errJson)
+			return
+		}
+		if err = validate.Struct(blockContents); err == nil {
+			network.WriteJson(w, &BlindedDenebProduceBlockV3Response{
+				Version:                 version.String(version.Deneb),
+				ExecutionPayloadBlinded: true,
+				ExeuctionPayloadValue:   fmt.Sprintf("%d", v1alpha1resp.PayloadValue), // mev not available at this point
+				Data:                    blockContents,
+			})
+			return
+		}
+	}
+	denebBlockContents, ok := v1alpha1resp.Block.(*eth.GenericBeaconBlock_Deneb)
+	if ok {
+		w.Header().Set(api.ExecutionPayloadBlindedHeader, fmt.Sprintf("%v", v1alpha1resp.IsBlinded))
+		w.Header().Set(api.ExecutionPayloadValueHeader, fmt.Sprintf("%d", v1alpha1resp.PayloadValue))
+		if isSSZ {
+			sszResp, err := denebBlockContents.Deneb.MarshalSSZ()
+			if err != nil {
+				errJson := &network.DefaultErrorJson{
+					Message: err.Error(),
+					Code:    http.StatusInternalServerError,
+				}
+				network.WriteError(w, errJson)
+				return
+			}
+			network.WriteSsz(w, sszResp, "denebBlockContents.ssz")
+			return
+		}
+		blockContents, err := convertInternalBeaconBlockContentsDeneb(denebBlockContents.Deneb)
+		if err != nil {
+			errJson := &network.DefaultErrorJson{
+				Message: err.Error(),
+				Code:    http.StatusInternalServerError,
+			}
+			network.WriteError(w, errJson)
+			return
+		}
+		if err = validate.Struct(blockContents); err == nil {
+			network.WriteJson(w, &DenebProduceBlockV3Response{
+				Version:                 version.String(version.Deneb),
+				ExecutionPayloadBlinded: true,
+				ExeuctionPayloadValue:   fmt.Sprintf("%d", v1alpha1resp.PayloadValue), // mev not available at this point
+				Data:                    blockContents,
+			})
+			return
+		}
+	}
 }

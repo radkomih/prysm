@@ -44,6 +44,11 @@ func (b *SignedBeaconBlock) SetBlinded(blinded bool) {
 	b.block.body.isBlinded = blinded
 }
 
+// SetValueInGwei sets the payload value in Gwei.
+func (b *SignedBeaconBlock) SetValueInGwei(value uint64) {
+	b.block.body.valueInGwei = value
+}
+
 // SetRandaoReveal sets the randao reveal in the block body.
 // This function is not thread safe, it is only used during block creation.
 func (b *SignedBeaconBlock) SetRandaoReveal(r []byte) {

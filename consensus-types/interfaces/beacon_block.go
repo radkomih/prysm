@@ -32,6 +32,7 @@ type ReadOnlySignedBeaconBlock interface {
 	ssz.Unmarshaler
 	Version() int
 	IsBlinded() bool
+	ValueInGwei() uint64
 	Header() (*ethpb.SignedBeaconBlockHeader, error)
 }
 
@@ -90,6 +91,7 @@ type SignedBeaconBlock interface {
 	SetEth1Data(*ethpb.Eth1Data)
 	SetRandaoReveal([]byte)
 	SetBlinded(bool)
+	SetValueInGwei(uint64)
 	SetStateRoot([]byte)
 	SetParentRoot([]byte)
 	SetProposerIndex(idx primitives.ValidatorIndex)

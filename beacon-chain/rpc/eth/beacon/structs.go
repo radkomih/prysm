@@ -189,7 +189,7 @@ type BeaconBlockBodyDeneb struct {
 	VoluntaryExits        []*SignedVoluntaryExit        `json:"voluntary_exits" validate:"required"`
 	SyncAggregate         *SyncAggregate                `json:"sync_aggregate" validate:"required"`
 	ExecutionPayload      *ExecutionPayloadDeneb        `json:"execution_payload" validate:"required"`
-	BLSToExecutionChanges []*SignedBlsToExecutionChange `json:"bls_to_execution_changes" validate:"required"`
+	BlsToExecutionChanges []*SignedBlsToExecutionChange `json:"bls_to_execution_changes" validate:"required"`
 	BlobKzgCommitments    []string                      `json:"blob_kzg_commitments" validate:"required"`
 }
 
@@ -203,7 +203,7 @@ type ExecutionPayloadDeneb struct {
 	BlockNumber   string        `json:"block_number" validate:"required"`
 	GasLimit      string        `json:"gas_limit" validate:"required"`
 	GasUsed       string        `json:"gas_used" validate:"required"`
-	TimeStamp     string        `json:"timestamp" validate:"required"`
+	Timestamp     string        `json:"timestamp" validate:"required"`
 	ExtraData     string        `json:"extra_data" validate:"required"`
 	BaseFeePerGas string        `json:"base_fee_per_gas" validate:"required"`
 	DataGasUsed   string        `json:"data_gas_used" validate:"required"`   // new in deneb

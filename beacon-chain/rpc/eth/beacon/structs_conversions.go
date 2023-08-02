@@ -385,6 +385,215 @@ func convertInternalBeaconBlockBellatrix(b *eth.BeaconBlockBellatrix) (*BeaconBl
 	}, nil
 }
 
+func convertInternalBlindedBeaconBlockCapella(b *eth.BlindedBeaconBlockCapella) (*BlindedBeaconBlockCapella, error) {
+	if b == nil {
+		return nil, errors.New("block is empty, nothing to convert.")
+	}
+	proposerSlashings, err := convertInternalProposerSlashings(b.Body.ProposerSlashings)
+	if err != nil {
+		return nil, err
+	}
+	attesterSlashings, err := convertInternalAttesterSlashings(b.Body.AttesterSlashings)
+	if err != nil {
+		return nil, err
+	}
+	atts, err := convertInternalAtts(b.Body.Attestations)
+	if err != nil {
+		return nil, err
+	}
+	deposits, err := convertInternalDeposits(b.Body.Deposits)
+	if err != nil {
+		return nil, err
+	}
+	exits, err := convertInternalExits(b.Body.VoluntaryExits)
+	if err != nil {
+		return nil, err
+	}
+
+	blsChanges, err := convertInternalBlsChanges(b.Body.BlsToExecutionChanges)
+	if err != nil {
+		return nil, err
+	}
+
+	return &BlindedBeaconBlockCapella{
+		Slot:          fmt.Sprintf("%d", b.Slot),
+		ProposerIndex: fmt.Sprintf("%d", b.ProposerIndex),
+		ParentRoot:    hexutil.Encode(b.ParentRoot),
+		StateRoot:     hexutil.Encode(b.StateRoot),
+		Body: &BlindedBeaconBlockBodyCapella{
+			RandaoReveal: hexutil.Encode(b.Body.RandaoReveal),
+			Eth1Data: &Eth1Data{
+				DepositRoot:  hexutil.Encode(b.Body.Eth1Data.DepositRoot),
+				DepositCount: fmt.Sprintf("%d", b.Body.Eth1Data.DepositCount),
+				BlockHash:    hexutil.Encode(b.Body.Eth1Data.BlockHash),
+			},
+			Graffiti:          hexutil.Encode(b.Body.Graffiti),
+			ProposerSlashings: proposerSlashings,
+			AttesterSlashings: attesterSlashings,
+			Attestations:      atts,
+			Deposits:          deposits,
+			VoluntaryExits:    exits,
+			SyncAggregate: &SyncAggregate{
+				SyncCommitteeBits:      hexutil.Encode(b.Body.SyncAggregate.SyncCommitteeBits),
+				SyncCommitteeSignature: hexutil.Encode(b.Body.SyncAggregate.SyncCommitteeSignature),
+			},
+			ExecutionPayloadHeader: &ExecutionPayloadHeaderCapella{
+				ParentHash:       hexutil.Encode(b.Body.ExecutionPayloadHeader.ParentHash),
+				FeeRecipient:     hexutil.Encode(b.Body.ExecutionPayloadHeader.FeeRecipient),
+				StateRoot:        hexutil.Encode(b.Body.ExecutionPayloadHeader.StateRoot),
+				ReceiptsRoot:     hexutil.Encode(b.Body.ExecutionPayloadHeader.ReceiptsRoot),
+				LogsBloom:        hexutil.Encode(b.Body.ExecutionPayloadHeader.LogsBloom),
+				PrevRandao:       hexutil.Encode(b.Body.ExecutionPayloadHeader.PrevRandao),
+				BlockNumber:      fmt.Sprintf("%d", b.Body.ExecutionPayloadHeader.BlockNumber),
+				GasLimit:         fmt.Sprintf("%d", b.Body.ExecutionPayloadHeader.GasLimit),
+				GasUsed:          fmt.Sprintf("%d", b.Body.ExecutionPayloadHeader.GasUsed),
+				Timestamp:        fmt.Sprintf("%d", b.Body.ExecutionPayloadHeader.Timestamp),
+				ExtraData:        hexutil.Encode(b.Body.ExecutionPayloadHeader.ExtraData),
+				BaseFeePerGas:    hexutil.Encode(b.Body.ExecutionPayloadHeader.BaseFeePerGas),
+				BlockHash:        hexutil.Encode(b.Body.ExecutionPayloadHeader.BlockHash),
+				TransactionsRoot: hexutil.Encode(b.Body.ExecutionPayloadHeader.TransactionsRoot),
+				WithdrawalsRoot:  hexutil.Encode(b.Body.ExecutionPayloadHeader.WithdrawalsRoot), // new in capella
+			},
+			BlsToExecutionChanges: blsChanges, // new in capella
+		},
+	}, nil
+}
+
+func convertInternalBeaconBlockCapella(b *eth.BeaconBlockCapella) (*BeaconBlockCapella, error) {
+	if b == nil {
+		return nil, errors.New("block is empty, nothing to convert.")
+	}
+	proposerSlashings, err := convertInternalProposerSlashings(b.Body.ProposerSlashings)
+	if err != nil {
+		return nil, err
+	}
+	attesterSlashings, err := convertInternalAttesterSlashings(b.Body.AttesterSlashings)
+	if err != nil {
+		return nil, err
+	}
+	atts, err := convertInternalAtts(b.Body.Attestations)
+	if err != nil {
+		return nil, err
+	}
+	deposits, err := convertInternalDeposits(b.Body.Deposits)
+	if err != nil {
+		return nil, err
+	}
+	exits, err := convertInternalExits(b.Body.VoluntaryExits)
+	if err != nil {
+		return nil, err
+	}
+	transactions := make([]string, len(b.Body.ExecutionPayload.Transactions))
+	for i, tx := range b.Body.ExecutionPayload.Transactions {
+		transactions[i] = hexutil.Encode(tx)
+	}
+	withdrawals := make([]*Withdrawal, len(b.Body.ExecutionPayload.Withdrawals))
+	for i, w := range b.Body.ExecutionPayload.Withdrawals {
+		withdrawals[i] = &Withdrawal{
+			WithdrawalIndex:  fmt.Sprintf("%d", w.Index),
+			ValidatorIndex:   fmt.Sprintf("%d", w.ValidatorIndex),
+			ExecutionAddress: hexutil.Encode(w.Address),
+			Amount:           fmt.Sprintf("%d", w.Amount),
+		}
+	}
+	blsChanges, err := convertInternalBlsChanges(b.Body.BlsToExecutionChanges)
+	if err != nil {
+		return nil, err
+	}
+	return &BeaconBlockCapella{
+		Slot:          fmt.Sprintf("%d", b.Slot),
+		ProposerIndex: fmt.Sprintf("%d", b.ProposerIndex),
+		ParentRoot:    hexutil.Encode(b.ParentRoot),
+		StateRoot:     hexutil.Encode(b.StateRoot),
+		Body: &BeaconBlockBodyCapella{
+			RandaoReveal: hexutil.Encode(b.Body.RandaoReveal),
+			Eth1Data: &Eth1Data{
+				DepositRoot:  hexutil.Encode(b.Body.Eth1Data.DepositRoot),
+				DepositCount: fmt.Sprintf("%d", b.Body.Eth1Data.DepositCount),
+				BlockHash:    hexutil.Encode(b.Body.Eth1Data.BlockHash),
+			},
+			Graffiti:          hexutil.Encode(b.Body.Graffiti),
+			ProposerSlashings: proposerSlashings,
+			AttesterSlashings: attesterSlashings,
+			Attestations:      atts,
+			Deposits:          deposits,
+			VoluntaryExits:    exits,
+			SyncAggregate: &SyncAggregate{
+				SyncCommitteeBits:      hexutil.Encode(b.Body.SyncAggregate.SyncCommitteeBits),
+				SyncCommitteeSignature: hexutil.Encode(b.Body.SyncAggregate.SyncCommitteeSignature),
+			},
+			ExecutionPayload: &ExecutionPayloadCapella{
+				ParentHash:    hexutil.Encode(b.Body.ExecutionPayload.ParentHash),
+				FeeRecipient:  hexutil.Encode(b.Body.ExecutionPayload.FeeRecipient),
+				StateRoot:     hexutil.Encode(b.Body.ExecutionPayload.StateRoot),
+				ReceiptsRoot:  hexutil.Encode(b.Body.ExecutionPayload.ReceiptsRoot),
+				LogsBloom:     hexutil.Encode(b.Body.ExecutionPayload.LogsBloom),
+				PrevRandao:    hexutil.Encode(b.Body.ExecutionPayload.PrevRandao),
+				BlockNumber:   fmt.Sprintf("%d", b.Body.ExecutionPayload.BlockNumber),
+				GasLimit:      fmt.Sprintf("%d", b.Body.ExecutionPayload.GasLimit),
+				GasUsed:       fmt.Sprintf("%d", b.Body.ExecutionPayload.GasUsed),
+				Timestamp:     fmt.Sprintf("%d", b.Body.ExecutionPayload.Timestamp),
+				ExtraData:     hexutil.Encode(b.Body.ExecutionPayload.ExtraData),
+				BaseFeePerGas: hexutil.Encode(b.Body.ExecutionPayload.BaseFeePerGas),
+				BlockHash:     hexutil.Encode(b.Body.ExecutionPayload.BlockHash),
+				Transactions:  transactions,
+				Withdrawals:   withdrawals, // new in capella
+			},
+			BlsToExecutionChanges: blsChanges, // new in capella
+		},
+	}, nil
+}
+
+func convertInternalBlindedBeaconBlockContentsDeneb(b *eth.BlindedBeaconBlockAndBlobsDeneb) (*BlindedBeaconBlockContentsDeneb, error) {
+	if b == nil || b.Block == nil {
+		return nil, errors.New("block is empty, nothing to convert.")
+	}
+	var blindedBlobSidecars []*BlindedBlobSidecar
+	if len(b.Blobs) != 0 {
+		blindedBlobSidecars = make([]*BlindedBlobSidecar, len(b.Blobs))
+		for i, s := range b.Blobs {
+			signedBlob, err := convertInternalToBlindedBlobSidecar(s)
+			if err != nil {
+				return nil, err
+			}
+			blindedBlobSidecars[i] = signedBlob
+		}
+	}
+	blindedBlock, err := convertInternalToBlindedDenebBlock(b.Block)
+	if err != nil {
+		return nil, err
+	}
+	return &BlindedBeaconBlockContentsDeneb{
+		BlindedBlock:        blindedBlock,
+		BlindedBlobSidecars: blindedBlobSidecars,
+	}, nil
+}
+
+func convertInternalBeaconBlockContentsDeneb(b *eth.BeaconBlockAndBlobsDeneb) (*BeaconBlockContentsDeneb, error) {
+	if b == nil || b.Block == nil {
+		return nil, errors.New("block is empty, nothing to convert.")
+	}
+	var blobSidecars []*BlobSidecar
+	if len(b.Blobs) != 0 {
+		blobSidecars = make([]*BlobSidecar, len(b.Blobs))
+		for i, s := range b.Blobs {
+			blob, err := convertInternalToBlobSidecar(s)
+			if err != nil {
+				return nil, err
+			}
+			blobSidecars[i] = blob
+		}
+	}
+	block, err := convertInternalToDenebBlock(b.Block)
+	if err != nil {
+		return nil, err
+	}
+	return &BeaconBlockContentsDeneb{
+		Block:        block,
+		BlobSidecars: blobSidecars,
+	}, nil
+}
+
 func (b *SignedBeaconBlockAltair) ToGeneric() (*eth.GenericSignedBeaconBlock, error) {
 	sig, err := hexutil.Decode(b.Signature)
 	if err != nil {
@@ -1348,7 +1557,7 @@ func convertToSignedDenebBlock(signedBlock *SignedBeaconBlockDeneb) (*eth.Signed
 	if err != nil {
 		return nil, errors.Wrap(err, "could not decode signedBlock.Message.Body.ExecutionPayload.GasUsed")
 	}
-	payloadTimestamp, err := strconv.ParseUint(signedBlock.Message.Body.ExecutionPayload.TimeStamp, 10, 64)
+	payloadTimestamp, err := strconv.ParseUint(signedBlock.Message.Body.ExecutionPayload.Timestamp, 10, 64)
 	if err != nil {
 		return nil, errors.Wrap(err, "could not decode signedBlock.Message.Body.ExecutionPayloadHeader.Timestamp")
 	}
@@ -1396,7 +1605,7 @@ func convertToSignedDenebBlock(signedBlock *SignedBeaconBlockDeneb) (*eth.Signed
 			Amount:         amount,
 		}
 	}
-	blsChanges, err := convertBlsChanges(signedBlock.Message.Body.BLSToExecutionChanges)
+	blsChanges, err := convertBlsChanges(signedBlock.Message.Body.BlsToExecutionChanges)
 	if err != nil {
 		return nil, err
 	}
@@ -1729,6 +1938,170 @@ func convertToSignedBlindedDenebBlock(signedBlindedBlock *SignedBlindedBeaconBlo
 	}, nil
 }
 
+func convertInternalToBlindedDenebBlock(b *eth.BlindedBeaconBlockDeneb) (*BlindedBeaconBlockDeneb, error) {
+	if b == nil {
+		return nil, errors.New("block is empty, nothing to convert.")
+	}
+	proposerSlashings, err := convertInternalProposerSlashings(b.Body.ProposerSlashings)
+	if err != nil {
+		return nil, err
+	}
+	attesterSlashings, err := convertInternalAttesterSlashings(b.Body.AttesterSlashings)
+	if err != nil {
+		return nil, err
+	}
+	atts, err := convertInternalAtts(b.Body.Attestations)
+	if err != nil {
+		return nil, err
+	}
+	deposits, err := convertInternalDeposits(b.Body.Deposits)
+	if err != nil {
+		return nil, err
+	}
+	exits, err := convertInternalExits(b.Body.VoluntaryExits)
+	if err != nil {
+		return nil, err
+	}
+
+	blsChanges, err := convertInternalBlsChanges(b.Body.BlsToExecutionChanges)
+	if err != nil {
+		return nil, err
+	}
+
+	return &BlindedBeaconBlockDeneb{
+		Slot:          fmt.Sprintf("%d", b.Slot),
+		ProposerIndex: fmt.Sprintf("%d", b.ProposerIndex),
+		ParentRoot:    hexutil.Encode(b.ParentRoot),
+		StateRoot:     hexutil.Encode(b.StateRoot),
+		Body: &BlindedBeaconBlockBodyDeneb{
+			RandaoReveal: hexutil.Encode(b.Body.RandaoReveal),
+			Eth1Data: &Eth1Data{
+				DepositRoot:  hexutil.Encode(b.Body.Eth1Data.DepositRoot),
+				DepositCount: fmt.Sprintf("%d", b.Body.Eth1Data.DepositCount),
+				BlockHash:    hexutil.Encode(b.Body.Eth1Data.BlockHash),
+			},
+			Graffiti:          hexutil.Encode(b.Body.Graffiti),
+			ProposerSlashings: proposerSlashings,
+			AttesterSlashings: attesterSlashings,
+			Attestations:      atts,
+			Deposits:          deposits,
+			VoluntaryExits:    exits,
+			SyncAggregate: &SyncAggregate{
+				SyncCommitteeBits:      hexutil.Encode(b.Body.SyncAggregate.SyncCommitteeBits),
+				SyncCommitteeSignature: hexutil.Encode(b.Body.SyncAggregate.SyncCommitteeSignature),
+			},
+			ExecutionPayloadHeader: &ExecutionPayloadHeaderDeneb{
+				ParentHash:       hexutil.Encode(b.Body.ExecutionPayloadHeader.ParentHash),
+				FeeRecipient:     hexutil.Encode(b.Body.ExecutionPayloadHeader.FeeRecipient),
+				StateRoot:        hexutil.Encode(b.Body.ExecutionPayloadHeader.StateRoot),
+				ReceiptsRoot:     hexutil.Encode(b.Body.ExecutionPayloadHeader.ReceiptsRoot),
+				LogsBloom:        hexutil.Encode(b.Body.ExecutionPayloadHeader.LogsBloom),
+				PrevRandao:       hexutil.Encode(b.Body.ExecutionPayloadHeader.PrevRandao),
+				BlockNumber:      fmt.Sprintf("%d", b.Body.ExecutionPayloadHeader.BlockNumber),
+				GasLimit:         fmt.Sprintf("%d", b.Body.ExecutionPayloadHeader.GasLimit),
+				GasUsed:          fmt.Sprintf("%d", b.Body.ExecutionPayloadHeader.GasUsed),
+				Timestamp:        fmt.Sprintf("%d", b.Body.ExecutionPayloadHeader.Timestamp),
+				ExtraData:        hexutil.Encode(b.Body.ExecutionPayloadHeader.ExtraData),
+				BaseFeePerGas:    hexutil.Encode(b.Body.ExecutionPayloadHeader.BaseFeePerGas),
+				BlockHash:        hexutil.Encode(b.Body.ExecutionPayloadHeader.BlockHash),
+				TransactionsRoot: hexutil.Encode(b.Body.ExecutionPayloadHeader.TransactionsRoot),
+				WithdrawalsRoot:  hexutil.Encode(b.Body.ExecutionPayloadHeader.WithdrawalsRoot),
+				DataGasUsed:      fmt.Sprintf("%d", b.Body.ExecutionPayloadHeader.DataGasUsed),   // new in deneb TODO: rename to blob
+				ExcessDataGas:    fmt.Sprintf("%d", b.Body.ExecutionPayloadHeader.ExcessDataGas), // new in deneb TODO: rename to blob
+			},
+			BlsToExecutionChanges: blsChanges, // new in capella
+		},
+	}, nil
+}
+
+func convertInternalToDenebBlock(b *eth.BeaconBlockDeneb) (*BeaconBlockDeneb, error) {
+	if b == nil {
+		return nil, errors.New("block is empty, nothing to convert.")
+	}
+	proposerSlashings, err := convertInternalProposerSlashings(b.Body.ProposerSlashings)
+	if err != nil {
+		return nil, err
+	}
+	attesterSlashings, err := convertInternalAttesterSlashings(b.Body.AttesterSlashings)
+	if err != nil {
+		return nil, err
+	}
+	atts, err := convertInternalAtts(b.Body.Attestations)
+	if err != nil {
+		return nil, err
+	}
+	deposits, err := convertInternalDeposits(b.Body.Deposits)
+	if err != nil {
+		return nil, err
+	}
+	exits, err := convertInternalExits(b.Body.VoluntaryExits)
+	if err != nil {
+		return nil, err
+	}
+	transactions := make([]string, len(b.Body.ExecutionPayload.Transactions))
+	for i, tx := range b.Body.ExecutionPayload.Transactions {
+		transactions[i] = hexutil.Encode(tx)
+	}
+	withdrawals := make([]*Withdrawal, len(b.Body.ExecutionPayload.Withdrawals))
+	for i, w := range b.Body.ExecutionPayload.Withdrawals {
+		withdrawals[i] = &Withdrawal{
+			WithdrawalIndex:  fmt.Sprintf("%d", w.Index),
+			ValidatorIndex:   fmt.Sprintf("%d", w.ValidatorIndex),
+			ExecutionAddress: hexutil.Encode(w.Address),
+			Amount:           fmt.Sprintf("%d", w.Amount),
+		}
+	}
+	blsChanges, err := convertInternalBlsChanges(b.Body.BlsToExecutionChanges)
+	if err != nil {
+		return nil, err
+	}
+
+	return &BeaconBlockDeneb{
+		Slot:          fmt.Sprintf("%d", b.Slot),
+		ProposerIndex: fmt.Sprintf("%d", b.ProposerIndex),
+		ParentRoot:    hexutil.Encode(b.ParentRoot),
+		StateRoot:     hexutil.Encode(b.StateRoot),
+		Body: &BeaconBlockBodyDeneb{
+			RandaoReveal: hexutil.Encode(b.Body.RandaoReveal),
+			Eth1Data: &Eth1Data{
+				DepositRoot:  hexutil.Encode(b.Body.Eth1Data.DepositRoot),
+				DepositCount: fmt.Sprintf("%d", b.Body.Eth1Data.DepositCount),
+				BlockHash:    hexutil.Encode(b.Body.Eth1Data.BlockHash),
+			},
+			Graffiti:          hexutil.Encode(b.Body.Graffiti),
+			ProposerSlashings: proposerSlashings,
+			AttesterSlashings: attesterSlashings,
+			Attestations:      atts,
+			Deposits:          deposits,
+			VoluntaryExits:    exits,
+			SyncAggregate: &SyncAggregate{
+				SyncCommitteeBits:      hexutil.Encode(b.Body.SyncAggregate.SyncCommitteeBits),
+				SyncCommitteeSignature: hexutil.Encode(b.Body.SyncAggregate.SyncCommitteeSignature),
+			},
+			ExecutionPayload: &ExecutionPayloadDeneb{
+				ParentHash:    hexutil.Encode(b.Body.ExecutionPayload.ParentHash),
+				FeeRecipient:  hexutil.Encode(b.Body.ExecutionPayload.FeeRecipient),
+				StateRoot:     hexutil.Encode(b.Body.ExecutionPayload.StateRoot),
+				ReceiptsRoot:  hexutil.Encode(b.Body.ExecutionPayload.ReceiptsRoot),
+				LogsBloom:     hexutil.Encode(b.Body.ExecutionPayload.LogsBloom),
+				PrevRandao:    hexutil.Encode(b.Body.ExecutionPayload.PrevRandao),
+				BlockNumber:   fmt.Sprintf("%d", b.Body.ExecutionPayload.BlockNumber),
+				GasLimit:      fmt.Sprintf("%d", b.Body.ExecutionPayload.GasLimit),
+				GasUsed:       fmt.Sprintf("%d", b.Body.ExecutionPayload.GasUsed),
+				Timestamp:     fmt.Sprintf("%d", b.Body.ExecutionPayload.Timestamp),
+				ExtraData:     hexutil.Encode(b.Body.ExecutionPayload.ExtraData),
+				BaseFeePerGas: hexutil.Encode(b.Body.ExecutionPayload.BaseFeePerGas),
+				BlockHash:     hexutil.Encode(b.Body.ExecutionPayload.BlockHash),
+				Transactions:  transactions,
+				Withdrawals:   withdrawals,
+				DataGasUsed:   fmt.Sprintf("%d", b.Body.ExecutionPayload.DataGasUsed),   // new in deneb TODO: rename to blob
+				ExcessDataGas: fmt.Sprintf("%d", b.Body.ExecutionPayload.ExcessDataGas), // new in deneb TODO: rename to blob
+			},
+			BlsToExecutionChanges: blsChanges, // new in capella
+		},
+	}, nil
+}
+
 func convertToSignedBlindedBlobSidecar(i int, signedBlob *SignedBlindedBlobSidecar) (*eth.SignedBlindedBlobSidecar, error) {
 	blobSig, err := hexutil.Decode(signedBlob.Signature)
 	if err != nil {
@@ -1782,6 +2155,38 @@ func convertToSignedBlindedBlobSidecar(i int, signedBlob *SignedBlindedBlobSidec
 	return &eth.SignedBlindedBlobSidecar{
 		Message:   bsc,
 		Signature: blobSig,
+	}, nil
+}
+
+func convertInternalToBlindedBlobSidecar(b *eth.BlindedBlobSidecar) (*BlindedBlobSidecar, error) {
+	if b == nil {
+		return nil, errors.New("BlindedBlobSidecar is empty, nothing to convert.")
+	}
+	return &BlindedBlobSidecar{
+		BlockRoot:       hexutil.Encode(b.BlockRoot),
+		Index:           fmt.Sprintf("%d", b.Index),
+		Slot:            fmt.Sprintf("%d", b.Slot),
+		BlockParentRoot: hexutil.Encode(b.BlockParentRoot),
+		ProposerIndex:   fmt.Sprintf("%d", b.ProposerIndex),
+		BlobRoot:        hexutil.Encode(b.BlobRoot),
+		KzgCommitment:   hexutil.Encode(b.KzgCommitment),
+		KzgProof:        hexutil.Encode(b.KzgProof),
+	}, nil
+}
+
+func convertInternalToBlobSidecar(b *eth.BlobSidecar) (*BlobSidecar, error) {
+	if b == nil {
+		return nil, errors.New("BlobSidecar is empty, nothing to convert.")
+	}
+	return &BlobSidecar{
+		BlockRoot:       hexutil.Encode(b.BlockRoot),
+		Index:           fmt.Sprintf("%d", b.Index),
+		Slot:            fmt.Sprintf("%d", b.Slot),
+		BlockParentRoot: hexutil.Encode(b.BlockParentRoot),
+		ProposerIndex:   fmt.Sprintf("%d", b.ProposerIndex),
+		Blob:            hexutil.Encode(b.Blob),
+		KzgCommitment:   hexutil.Encode(b.KzgCommitment),
+		KzgProof:        hexutil.Encode(b.KzgProof),
 	}, nil
 }
 
